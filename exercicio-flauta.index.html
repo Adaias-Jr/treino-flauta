@@ -1,0 +1,357 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<title>Exercício de Notas</title>
+
+<style>
+body {
+  font-family: 'Segoe UI', Arial;
+  text-align: center;
+  margin: 0;
+  background: linear-gradient(135deg, #4facfe, #00f2fe);
+}
+
+.container {
+  background: white;
+  max-width: 1000px;
+  margin: 60px auto;
+  padding: 40px;
+  border-radius: 15px;
+  box-shadow: 0 10px 25px rgba(0,0,0,0.2);
+  position: relative;
+}
+
+.notas span {
+  font-size: 34px;
+  margin: 0 6px;
+  font-weight: bold;
+}
+
+.lacuna {
+  border-bottom: 3px solid black;
+  padding: 0 8px;
+  min-width: 40px;
+  display: inline-block;
+}
+
+.preenchido {
+  color: green;
+  border-bottom: none;
+}
+
+.ativa {
+  color: yellow;
+  text-shadow: 0 0 10px rgba(255,255,0,0.9);
+}
+
+button, select, input {
+  padding: 12px;
+  margin: 10px;
+  font-size: 16px;
+  border-radius: 8px;
+  border: none;
+}
+
+button {
+  background: #4facfe;
+  color: white;
+  cursor: pointer;
+}
+
+.btn-revelar {
+  background: #28a745;
+}
+
+.timer {
+  font-size: 22px;
+  color: red;
+  font-weight: bold;
+}
+
+.respostaCompleta {
+  margin-top: 25px;
+  font-size: 22px;
+  color: green;
+  display: none;
+}
+
+#controleVelocidade {
+  display: none;
+}
+
+.overlay {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  
+  backdrop-filter: blur(6px);
+  background: rgba(255,255,255,0.4);
+  
+  padding: 25px 40px;
+  border-radius: 15px;
+
+  display: none;
+  font-size: 26px;
+  color: red;
+  font-weight: bold;
+  text-align: center;
+
+  box-shadow: 0 5px 20px rgba(0,0,0,0.2);
+}
+</style>
+</head>
+
+<body>
+
+<div class="container">
+
+<h1>🎼 Exercício de Notas</h1>
+
+<select id="quantidade">
+<option value="1">1 nota</option>
+<option value="2">2 notas</option>
+<option value="3">3 notas</option>
+</select>
+
+<br>
+
+<label>Tempo para resposta:</label><br>
+<select id="tempoResposta">
+<option value="5">5 segundos</option>
+<option value="7">7 segundos</option>
+<option value="10" selected>10 segundos</option>
+<option value="12">12 segundos</option>
+<option value="15">15 segundos</option>
+</select>
+
+<br>
+
+<button onclick="gerarExercicio()">Gerar Exercício</button>
+
+<button id="btnRevelar" class="btn-revelar" onclick="revelarAgora()" style="display:none;">
+Revelar Resposta
+</button>
+
+<div id="controleVelocidade">
+<br>
+<label>Velocidade do som:</label><br>
+<input type="range" id="velocidade" min="0" max="100" value="50">
+</div>
+
+<div class="notas" id="exercicio"></div>
+<div class="timer" id="timer"></div>
+<div class="respostaCompleta" id="respostaCompleta"></div>
+
+<div class="overlay" id="overlay"></div>
+
+</div>
+
+<script>
+const notasBase = ["Dó","Ré","Mi","Fá","Sol","Lá","Si"];
+let respostaAtual = [];
+let indicesOcultos = [];
+let intervalo;
+let timeouts = [];
+let osciladores = [];
+
+const freq = {
+  "Dó": 261.63,
+  "Ré": 293.66,
+  "Mi": 329.63,
+  "Fá": 349.23,
+  "Sol": 392.00,
+  "Lá": 440.00,
+  "Si": 493.88
+};
+
+const ctx = new (window.AudioContext || window.webkitAudioContext)();
+
+function pararSom(){
+  timeouts.forEach(t => clearTimeout(t));
+  timeouts = [];
+
+  osciladores.forEach(o => {
+    try { o.stop(); } catch(e){}
+  });
+  osciladores = [];
+}
+
+function tocarNota(frequencia, dur=0.9){
+  const osc = ctx.createOscillator();
+  const gain = ctx.createGain();
+
+  osc.type = "triangle";
+  osc.frequency.setValueAtTime(frequencia, ctx.currentTime);
+
+  // vibrato (som mais real)
+  const vibrato = ctx.createOscillator();
+  const vibratoGain = ctx.createGain();
+
+  vibrato.frequency.value = 5;
+  vibratoGain.gain.value = 6;
+
+  vibrato.connect(vibratoGain);
+  vibratoGain.connect(osc.frequency);
+
+  // envelope natural
+  gain.gain.setValueAtTime(0, ctx.currentTime);
+  gain.gain.linearRampToValueAtTime(0.7, ctx.currentTime + 0.08);
+  gain.gain.setValueAtTime(0.6, ctx.currentTime + 0.3);
+  gain.gain.linearRampToValueAtTime(0, ctx.currentTime + dur);
+
+  osc.connect(gain);
+  gain.connect(ctx.destination);
+
+  osc.start();
+  vibrato.start();
+
+  osc.stop(ctx.currentTime + dur);
+  vibrato.stop(ctx.currentTime + dur);
+
+  osciladores.push(osc);
+}
+
+function getVelocidade(){
+  let slider = document.getElementById("velocidade").value;
+  return 1200 - (slider * 9);
+}
+
+function tocarSequencia(){
+  let velocidade = getVelocidade();
+
+  respostaAtual.forEach((nota, i)=>{
+    let t = setTimeout(()=>{
+      destacarNota(i);
+      tocarNota(freq[nota]);
+    }, i * velocidade);
+
+    timeouts.push(t);
+  });
+}
+
+function destacarNota(index){
+  const spans = document.querySelectorAll("#exercicio span");
+
+  spans.forEach(s => s.classList.remove("ativa"));
+
+  if(spans[index]){
+    spans[index].classList.add("ativa");
+
+    setTimeout(()=>{
+      spans[index].classList.remove("ativa");
+    }, 400);
+  }
+}
+
+function embaralhar(arr){
+  for(let i = arr.length-1;i>0;i--){
+    let j = Math.floor(Math.random()*(i+1));
+    [arr[i],arr[j]]=[arr[j],arr[i]];
+  }
+  return arr;
+}
+
+function gerarExercicio(){
+  clearInterval(intervalo);
+  pararSom();
+
+  document.getElementById("btnRevelar").style.display = "inline-block";
+  document.getElementById("controleVelocidade").style.display = "block";
+
+  let notas = embaralhar([...notasBase]);
+  respostaAtual = [...notas];
+
+  let qtd = parseInt(document.getElementById("quantidade").value);
+  indicesOcultos = [];
+
+  while(indicesOcultos.length < qtd){
+    let i = Math.floor(Math.random()*notas.length);
+    if(!indicesOcultos.includes(i)){
+      indicesOcultos.push(i);
+    }
+  }
+
+  render(false);
+  document.getElementById("respostaCompleta").style.display = "none";
+
+  iniciarTimer();
+}
+
+function render(mostrar){
+  let html = "";
+
+  respostaAtual.forEach((nota,i)=>{
+    if(indicesOcultos.includes(i)){
+      html += mostrar
+        ? `<span class="preenchido">${nota}</span>`
+        : `<span class="lacuna">___</span>`;
+    } else {
+      html += `<span>${nota}</span>`;
+    }
+
+    if(i < respostaAtual.length-1){
+      html += " - ";
+    }
+  });
+
+  document.getElementById("exercicio").innerHTML = html;
+}
+
+function iniciarTimer(){
+  let tempo = parseInt(document.getElementById("tempoResposta").value);
+  const el = document.getElementById("timer");
+
+  el.innerText = "⏳ Tempo: " + tempo + "s";
+
+  intervalo = setInterval(()=>{
+    tempo--;
+    el.innerText = "⏳ Tempo: " + tempo + "s";
+
+    if(tempo <= 0){
+      clearInterval(intervalo);
+      mostrarResposta();
+    }
+  },1000);
+}
+
+function revelarAgora(){
+  clearInterval(intervalo);
+  mostrarResposta();
+}
+
+function mostrarResposta(){
+  render(true);
+
+  document.getElementById("respostaCompleta").innerText =
+    "Resposta: " + respostaAtual.join(" - ");
+  document.getElementById("respostaCompleta").style.display = "block";
+
+  iniciarContagemSom();
+}
+
+function iniciarContagemSom(){
+  const overlay = document.getElementById("overlay");
+  overlay.style.display = "flex";
+
+  let tempo = 3;
+  overlay.innerText = "DISPARO DO SOM EM: " + tempo + "s";
+
+  const contagem = setInterval(()=>{
+    tempo--;
+    overlay.innerText = "DISPARO DO SOM EM: " + tempo + "s";
+
+    if(tempo <= 0){
+      clearInterval(contagem);
+      overlay.style.display = "none";
+
+      ctx.resume();
+      tocarSequencia();
+    }
+  },1000);
+}
+</script>
+
+</body>
+</html>
